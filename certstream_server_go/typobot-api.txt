@@ -1,0 +1,5 @@
+8746377322:AAHsT7uZml03MDZXHe-tlFsm6aacuxaZMSQ
+
+
+{"ok":true,"result":[{"update_id":999611129,
+"message":{"message_id":3,"from":{"id":7493571281,"is_bot":false,"first_name":"Devi","last_name":"Devi","language_code":"en"},"chat":{"id":7493571281,"first_name":"Devi","last_name":"Devi","type":"private"},"date":1788944695,"text":"hi"}}]}
