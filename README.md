@@ -1,45 +1,45 @@
-﻿# ðŸ›¡ï¸ Typosquat & Brand Impersonation Monitor
+# 🛡️ Typosquat & Brand Impersonation Monitor
 
 An automated, real-time threat intelligence platform designed to detect, enrich, score, alert, and generate takedown reports for typosquatting, homoglyph, and brand impersonation domains.
 
 ---
 
-## ðŸ“ Architecture & Pipeline
+## 📐 Architecture & Pipeline
 
 ```
 [ Certificate Transparency (CT) Stream ]
-                  â”‚
-                  â–¼
-   [ Ingestion & Permutation Filter ]  â—„â”€â”€ (dnstwist lookalike generator)
-                  â”‚
-                  â–¼
+                  │
+                  ▼
+   [ Ingestion & Permutation Filter ]  ◄── (dnstwist lookalike generator)
+                  │
+                  ▼
         [ Enrichment Engine ]
-         â”œâ”€ Punycode / IDN Decoder   (idna: reveals homoglyphs like pÐ°ypal.com)
-         â”œâ”€ DNS Liveness Check        (socket resolution)
-         â”œâ”€ Headless Screenshot      (Playwright Chromium)
-         â”œâ”€ Visual Similarity Engine (pHash comparison vs reference screenshot)
-         â”œâ”€ Content Signal Parser    (BeautifulSoup: login forms, password inputs, text)
-         â””â”€ WHOIS / RDAP Lookup       (rdap.org: registrar & abuse contacts)
-                  â”‚
-                  â–¼
+         ├─ Punycode / IDN Decoder   (idna: reveals homoglyphs like pаypal.com)
+         ├─ DNS Liveness Check        (socket resolution)
+         ├─ Headless Screenshot      (Playwright Chromium)
+         ├─ Visual Similarity Engine (pHash comparison vs reference screenshot)
+         ├─ Content Signal Parser    (BeautifulSoup: login forms, password inputs, text)
+         └─ WHOIS / RDAP Lookup       (rdap.org: registrar & abuse contacts)
+                  │
+                  ▼
         [ Risk Scoring Engine ]      (Weighted composite score 0-100)
-                  â”‚
-         â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”
-         â–¼                 â–¼
+                  │
+         ┌────────┴────────┐
+         ▼                 ▼
   [ SQLite DB ]    [ Incident Response (HIGH Risk) ]
- (data/monitor.db)  â”œâ”€ Telegram Alert Bot
-         â”‚          â””â”€ Automated PDF Takedown Report (xhtml2pdf + Jinja2)
-         â–¼
+ (data/monitor.db)  ├─ Telegram Alert Bot
+         │          └─ Automated PDF Takedown Report (xhtml2pdf + Jinja2)
+         ▼
 [ Streamlit Web Dashboard ]
  (dashboard/app.py)
 ```
 
 ---
 
-## âœ¨ Features
+## ✨ Features
 
 - **Real-Time Ingestion**: Connects to Certificate Transparency (CT) log streams via WebSockets to evaluate newly issued SSL/TLS certificates globally.
-- **Homoglyph & Punycode Decoding**: Converts Internationalized Domain Names (IDNs) (`xn--...`) into Unicode to expose visual lookalike tricks (e.g., Cyrillic `Ð°` replacing Latin `a`).
+- **Homoglyph & Punycode Decoding**: Converts Internationalized Domain Names (IDNs) (`xn--...`) into Unicode to expose visual lookalike tricks (e.g., Cyrillic `а` replacing Latin `a`).
 - **Visual Similarity Engine**: Captures headless screenshots using **Playwright Chromium** and calculates perceptual hashes (`imagehash.phash`) against official brand reference screenshots.
 - **Phishing HTML Extraction**: Parses DOM structures using **BeautifulSoup** for login forms, password input fields, and suspicious credential-harvesting language.
 - **Network-Resilient WHOIS**: Queries modern HTTPS-based RDAP (`rdap.org`) for registrar info and abuse contact emails, bypassing raw WHOIS port 43 blocks.
@@ -50,7 +50,7 @@ An automated, real-time threat intelligence platform designed to detect, enrich,
 
 ---
 
-## ðŸ“Š Risk Scoring Weights
+## 📊 Risk Scoring Weights
 
 | Signal | Contribution | Description |
 | :--- | :---: | :--- |
@@ -59,56 +59,56 @@ An automated, real-time threat intelligence platform designed to detect, enrich,
 | **Login Form Present** | **25 points** | Form containing `<input type="password">` detected. |
 | **Suspicious Phrases** | **15 points** | Contains keywords like *"verify your account"*, *"unusual activity"*. |
 
-- ðŸ”´ **HIGH Risk**: Score $\ge 70$ (Triggers Telegram notification & PDF report generation)
-- ðŸŸ  **MEDIUM Risk**: Score $50 - 69$
-- ðŸŸ¢ **LOW Risk**: Score $< 50$
+- 🔴 **HIGH Risk**: Score $\ge 70$ (Triggers Telegram notification & PDF report generation)
+- 🟠 **MEDIUM Risk**: Score $50 - 69$
+- 🟢 **LOW Risk**: Score $< 50$
 
 ---
 
-## ðŸ“ Repository Structure
+## 📁 Repository Structure
 
 ```
 typosquat-monitor/
-â”œâ”€â”€ config/
-â”‚   â””â”€â”€ brand_config.yaml           # Monitored brand settings
-â”œâ”€â”€ certstream_server_go/           # Go-based CT log server configuration
-â”œâ”€â”€ dashboard/
-â”‚   â””â”€â”€ app.py                      # Streamlit live web dashboard
-â”œâ”€â”€ data/
-â”‚   â”œâ”€â”€ monitor.db                  # SQLite database
-â”‚   â””â”€â”€ screenshots/                # Captured candidate screenshots
-â”œâ”€â”€ reference_assets/               # Reference brand screenshots & metadata
-â”œâ”€â”€ reports/                        # Generated PDF takedown reports
-â”œâ”€â”€ src/
-â”‚   â”œâ”€â”€ alerts/
-â”‚   â”‚   â””â”€â”€ telegram_bot.py         # Telegram alert integration
-â”‚   â”œâ”€â”€ enrichment/
-â”‚   â”‚   â”œâ”€â”€ content_signals.py      # HTML login form & phrase detection
-â”‚   â”‚   â”œâ”€â”€ dns_check.py            # Socket DNS resolution check
-â”‚   â”‚   â”œâ”€â”€ punycode_decoder.py     # IDN / Punycode converter
-â”‚   â”‚   â”œâ”€â”€ screenshot.py           # Playwright headless screenshot engine
-â”‚   â”‚   â”œâ”€â”€ visual_similarity.py    # Perceptual hash comparison
-â”‚   â”‚   â””â”€â”€ whois_lookup.py         # RDAP registrar & abuse info lookup
-â”‚   â”œâ”€â”€ ingest/
-â”‚   â”‚   â”œâ”€â”€ ct_stream_client.py     # Main CT stream websocket listener
-â”‚   â”‚   â””â”€â”€ permutation_filter.py   # dnstwist lookalike generator
-â”‚   â”œâ”€â”€ reporting/
-â”‚   â”‚   â”œâ”€â”€ report_generator.py     # Jinja2 + xhtml2pdf engine
-â”‚   â”‚   â””â”€â”€ templates/
-â”‚   â”‚       â””â”€â”€ takedown_report.html.j2
-â”‚   â”œâ”€â”€ scoring/
-â”‚   â”‚   â””â”€â”€ risk_score.py           # Risk calculation logic
-â”‚   â””â”€â”€ storage/
-â”‚       â””â”€â”€ db.py                   # SQLite database helper functions
-â”œâ”€â”€ demo_high_risk_trigger.py       # Pipeline simulation & PDF generator script
-â”œâ”€â”€ test_multi_domain_proof.py      # Multi-domain proof-of-concept test
-â”œâ”€â”€ README.md                       # Project overview & documentation
-â””â”€â”€ DEVELOPMENT.md                  # Future enhancement & technical roadmap
+├── config/
+│   └── brand_config.yaml           # Monitored brand settings
+├── certstream_server_go/           # Go-based CT log server configuration
+├── dashboard/
+│   └── app.py                      # Streamlit live web dashboard
+├── data/
+│   ├── monitor.db                  # SQLite database
+│   └── screenshots/                # Captured candidate screenshots
+├── reference_assets/               # Reference brand screenshots & metadata
+├── reports/                        # Generated PDF takedown reports
+├── src/
+│   ├── alerts/
+│   │   └── telegram_bot.py         # Telegram alert integration
+│   ├── enrichment/
+│   │   ├── content_signals.py      # HTML login form & phrase detection
+│   │   ├── dns_check.py            # Socket DNS resolution check
+│   │   ├── punycode_decoder.py     # IDN / Punycode converter
+│   │   ├── screenshot.py           # Playwright headless screenshot engine
+│   │   ├── visual_similarity.py    # Perceptual hash comparison
+│   │   └── whois_lookup.py         # RDAP registrar & abuse info lookup
+│   ├── ingest/
+│   │   ├── ct_stream_client.py     # Main CT stream websocket listener
+│   │   └── permutation_filter.py   # dnstwist lookalike generator
+│   ├── reporting/
+│   │   ├── report_generator.py     # Jinja2 + xhtml2pdf engine
+│   │   └── templates/
+│   │       └── takedown_report.html.j2
+│   ├── scoring/
+│   │   └── risk_score.py           # Risk calculation logic
+│   └── storage/
+│       └── db.py                   # SQLite database helper functions
+├── demo_high_risk_trigger.py       # Pipeline simulation & PDF generator script
+├── test_multi_domain_proof.py      # Multi-domain proof-of-concept test
+├── README.md                       # Project overview & documentation
+└── DEVELOPMENT.md                  # Future enhancement & technical roadmap
 ```
 
 ---
 
-## ðŸš€ Quick Start & Installation
+## 🚀 Quick Start & Installation
 
 ### 1. Prerequisites
 - Python 3.10+
@@ -133,7 +133,7 @@ playwright install chromium
 
 ---
 
-## ðŸ’» Usage Instructions
+## 💻 Usage Instructions
 
 ### 1. Run the Streamlit Dashboard
 Launch the dashboard to monitor live candidate domain metrics and historical trends:
@@ -161,7 +161,7 @@ python -m src.ingest.ct_stream_client --brand paypal.com
 
 ---
 
-## ðŸ”” Setting Up Telegram Alerts (Optional)
+## 🔔 Setting Up Telegram Alerts (Optional)
 
 Create a `.env` file in the project root:
 
@@ -174,5 +174,5 @@ When a `HIGH`-risk candidate is flagged ($\ge 70$), a notification will be pushe
 
 ---
 
-## ðŸ“„ License
+## 📄 License
 This project is released under the [MIT License](LICENSE).
