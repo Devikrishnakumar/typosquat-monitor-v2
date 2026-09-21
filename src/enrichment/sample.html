@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Book Flight</title>
+    </head>
+     <style>
+            body{
+                background-color:baby pink;
+                font-family: Arial, Helvetica, sans-serif;
+
+            }
+            .container{
+                display:flex;
+                gap: 20px;
+                background-color: bisque;
+                height: auto;
+                width: auto;
+            }
+            form{
+                background-color: bisque;
+            }
+            
+            button{
+                background-color: rgb(170, 235, 235);
+                color: rgb(189, 15, 15);
+                min-height: auto;
+                min-width: auto;
+            }
+            .hover
+        {
+            color:darkgreen
+        }
+            .h2{
+                text-align: center;
+                color: blueviolet;
+            }
+        </style>
+    <body class="body">
+        <h2>FLIGHT TICKET BOOKING</h2>
+        <div>
+        <left>ROUND TRIP</left>
+        <center>ONE WAY</center>
+        <right>MOLTICITY</right>
+        </div>
+        <form class="form">
+        <div >
+        <diV>
+            <label>Departure City</label>
+            <input type="text" name="dep">
+            <label>Destination City</label>
+            <input type="text" name="des">
+            </diV><br><br>
+            <div>
+            <label>Depart Date</label>
+            <input type="date" >
+            <label>Return Date</label>
+            <input type="date" >
+            </div>
+            
+            <label>Class</label>
+            <select>Select your class
+                <option>VIP</option>
+                <option>Business Class</option>
+                <option>Citizen</option>
+            </select>
+            <br><br>
+            <div>
+            <label>Adult(12+ yrs)</label>
+            <div><button>_</button>
+            <span>12</span>
+        <button>+</button></div>
+        <label>Child(2+ yrs)</label>
+        <div><button>_</button>
+            <span>2</span>
+        <button>+</button></div>
+        </div><br><br>
+
+        <button class="button,hover" type="submit">Search Flights</button>
+
+            
+        </div>
+        </form>
+
+    </body>
+</html>
