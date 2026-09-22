@@ -1,7 +1,7 @@
 ﻿"""
 db.py
 Storage API on top of SQLAlchemy. Same function names as the old SQLite version,
-plus lifecycle (status/notes/audit) and filtered queries for the future API.
+plus lifecycle (status/notes/audit), Phase 3 enrichment updates, and filtered queries.
 """
 
 from contextlib import contextmanager
@@ -75,6 +75,28 @@ def update_content_signals(candidate_id, has_login_form):
 
 def update_risk_score(candidate_id, score, level):
     _update(candidate_id, risk_score=score, risk_level=level)
+
+
+# ---------- Phase 3: extended enrichment signals ----------
+
+def update_email_security(candidate_id, has_mx, has_spf, has_dmarc):
+    _update(candidate_id, has_mx=has_mx, has_spf=has_spf, has_dmarc=has_dmarc)
+
+
+def update_ssl_metadata(candidate_id, ssl_info):
+    if not ssl_info:
+        return
+    _update(
+        candidate_id,
+        ssl_issuer=ssl_info.get("issuer"),
+        ssl_san_count=ssl_info.get("san_count"),
+        ssl_validity_days=ssl_info.get("validity_days"),
+        ssl_is_free_or_short_lived=ssl_info.get("is_free_or_short_lived"),
+    )
+
+
+def update_favicon_hash(candidate_id, favicon_hash):
+    _update(candidate_id, favicon_hash=str(favicon_hash) if favicon_hash is not None else None)
 
 
 # ---------- lifecycle ----------
@@ -160,6 +182,8 @@ if __name__ == "__main__":
     cid = insert_candidate("paypa1-test.com", "paypal.com")
     update_liveness(cid, True)
     update_risk_score(cid, 87, "HIGH")
+    update_email_security(cid, True, True, False)
+    update_favicon_hash(cid, 123456789)
     update_status(cid, "under_investigation", note="Login page resembles PayPal")
     add_note(cid, "Requested registrar contact")
     print(get_candidate(cid))

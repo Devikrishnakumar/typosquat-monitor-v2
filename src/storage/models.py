@@ -1,6 +1,6 @@
 ﻿"""
 models.py
-ORM models: Candidate (with lifecycle fields) and CandidateEvent (audit trail).
+ORM models: Candidate (with lifecycle fields + Phase 3 enrichment signals) and CandidateEvent (audit trail).
 """
 
 from datetime import datetime, timezone
@@ -33,6 +33,16 @@ class Candidate(Base):
     risk_score: Mapped[Optional[float]] = mapped_column(Float, index=True)
     risk_level: Mapped[Optional[str]] = mapped_column(String(10), index=True)
     screenshot_path: Mapped[Optional[str]] = mapped_column(String(500))
+
+    # Phase 3: extended enrichment signals
+    has_mx: Mapped[Optional[bool]] = mapped_column(Boolean)
+    has_spf: Mapped[Optional[bool]] = mapped_column(Boolean)
+    has_dmarc: Mapped[Optional[bool]] = mapped_column(Boolean)
+    ssl_issuer: Mapped[Optional[str]] = mapped_column(String(255))
+    ssl_san_count: Mapped[Optional[int]] = mapped_column(Integer)
+    ssl_validity_days: Mapped[Optional[int]] = mapped_column(Integer)
+    ssl_is_free_or_short_lived: Mapped[Optional[bool]] = mapped_column(Boolean)
+    favicon_hash: Mapped[Optional[str]] = mapped_column(String(50))
 
     # Lifecycle
     status: Mapped[str] = mapped_column(String(30), default="new", index=True)
