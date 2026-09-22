@@ -8,3 +8,5 @@ __pycache__/
 *.sqlite3
 
 *.exe
+*.db-shm
+*.db-wal
