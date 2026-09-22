@@ -60,12 +60,11 @@ while True:
             st.line_chart(trend)
 
             st.subheader("Candidates")
-            display_df = df[[
+                        display_df = df[[
                 "id", "domain", "decoded_domain", "matched_brand", "detected_at",
                 "is_live", "visual_similarity", "has_login_form",
-                "risk_score", "risk_level", "screenshot_path"
+                "risk_score", "risk_level", "status", "screenshot_path"
             ]]
-
             styled = display_df.style.map(color_risk_level, subset=["risk_level"])
             st.dataframe(styled, width="stretch", hide_index=True)
 
