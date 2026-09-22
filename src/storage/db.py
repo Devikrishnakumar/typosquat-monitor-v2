@@ -1,7 +1,7 @@
 ﻿"""
 db.py
 Storage API on top of SQLAlchemy. Same function names as the old SQLite version,
-plus lifecycle (status/notes/audit), Phase 3 enrichment updates, and filtered queries.
+plus lifecycle (status/notes/audit), Phase 3/4 enrichment updates, and filtered queries.
 """
 
 from contextlib import contextmanager
@@ -99,6 +99,12 @@ def update_favicon_hash(candidate_id, favicon_hash):
     _update(candidate_id, favicon_hash=str(favicon_hash) if favicon_hash is not None else None)
 
 
+# ---------- Phase 4: SSIM / combined visual similarity ----------
+
+def update_ssim_similarity(candidate_id, ssim_score, combined_score):
+    _update(candidate_id, ssim_similarity=ssim_score, combined_similarity=combined_score)
+
+
 # ---------- lifecycle ----------
 
 def update_status(candidate_id, new_status, note=None, actor="analyst"):
@@ -184,6 +190,7 @@ if __name__ == "__main__":
     update_risk_score(cid, 87, "HIGH")
     update_email_security(cid, True, True, False)
     update_favicon_hash(cid, 123456789)
+    update_ssim_similarity(cid, 0.82, 0.79)
     update_status(cid, "under_investigation", note="Login page resembles PayPal")
     add_note(cid, "Requested registrar contact")
     print(get_candidate(cid))

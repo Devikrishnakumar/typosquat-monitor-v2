@@ -3,9 +3,9 @@ risk_score.py
 Combines individual enrichment signals into one composite risk score (0-100).
 
 Phase 3: added has_mx / SPF+DMARC / SSL suspicion as extra signals.
-Original weights summed to 100 (is_live 25, visual_similarity 35,
-has_login_form 25, suspicious_phrases 15). They're scaled down here to
-free up 15 points for the three new signals, so the total still caps at 100.
+Phase 4: visual_similarity now expects the COMBINED pHash+SSIM score
+(from compute_combined_similarity), not pHash alone -- more resistant
+to minor layout changes while still catching real visual cloning.
 """
 
 WEIGHTS = {
@@ -14,8 +14,8 @@ WEIGHTS = {
     "has_login_form": 21,
     "suspicious_phrases": 13,
     "has_mx": 5,
-    "email_security": 5,   # SPF or DMARC present -> real mail infra, common in phishing setups
-    "ssl_suspicious": 5,   # free/short-lived cert -> common phishing infra pattern
+    "email_security": 5,
+    "ssl_suspicious": 5,
 }
 
 
@@ -24,7 +24,7 @@ def compute_risk_score(is_live, visual_similarity, has_login_form, suspicious_ph
     """
     Returns (total_score, breakdown_dict).
     total_score is 0-100. breakdown_dict shows each component's contribution.
-    New Phase 3 args are optional so old call sites keep working unchanged.
+    visual_similarity should be the combined pHash+SSIM score (0.0-1.0) as of Phase 4.
     """
     breakdown = {}
 

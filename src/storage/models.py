@@ -33,6 +33,9 @@ class Candidate(Base):
     risk_score: Mapped[Optional[float]] = mapped_column(Float, index=True)
     risk_level: Mapped[Optional[str]] = mapped_column(String(10), index=True)
     screenshot_path: Mapped[Optional[str]] = mapped_column(String(500))
+        # Phase 4: SSIM visual detection
+    ssim_similarity: Mapped[Optional[float]] = mapped_column(Float)
+    combined_similarity: Mapped[Optional[float]] = mapped_column(Float)
 
     # Phase 3: extended enrichment signals
     has_mx: Mapped[Optional[bool]] = mapped_column(Boolean)

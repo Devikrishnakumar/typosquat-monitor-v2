@@ -2,6 +2,11 @@
 app.py
 Streamlit dashboard showing live typosquat candidates from SQLite,
 sorted by risk score with severity color-coding and a historical trend chart.
+
+Note: does NOT call init_db()/Alembic here. Streamlit reruns this script
+repeatedly, and Alembic's upgrade() isn't safe to call more than once per
+process. Migrations are applied by ct_stream_client.py (or db.py's own
+smoke test) on startup instead.
 """
 
 import sys
@@ -12,11 +17,9 @@ import streamlit as st
 import pandas as pd
 import time
 
-from src.storage.db import get_all_candidates, init_db
+from src.storage.db import get_all_candidates
 
 st.set_page_config(page_title="Typosquat Monitor", layout="wide")
-
-init_db()
 
 st.title("Typosquat & Brand Impersonation Monitor")
 st.caption("Live candidates detected from Certificate Transparency logs, sorted by risk")
@@ -62,9 +65,10 @@ while True:
             st.subheader("Candidates")
             display_df = df[[
                 "id", "domain", "decoded_domain", "matched_brand", "detected_at",
-                "is_live", "visual_similarity", "has_login_form",
-                "has_mx", "has_spf", "has_dmarc", "ssl_issuer", "ssl_is_free_or_short_lived",
-                "favicon_hash", "risk_score", "risk_level", "status", "screenshot_path"
+                "is_live", "visual_similarity", "ssim_similarity", "combined_similarity",
+                "has_login_form", "has_mx", "has_spf", "has_dmarc", "ssl_issuer",
+                "ssl_is_free_or_short_lived", "favicon_hash",
+                "risk_score", "risk_level", "status", "screenshot_path"
             ]]
 
             styled = display_df.style.map(color_risk_level, subset=["risk_level"])
