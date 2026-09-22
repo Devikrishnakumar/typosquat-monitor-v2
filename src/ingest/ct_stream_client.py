@@ -1,144 +1,128 @@
 ﻿"""
 ct_stream_client.py
-Full pipeline: CT stream -> typosquat filter -> punycode decode -> DNS check ->
-screenshot -> visual similarity -> content signals -> composite risk score ->
-Telegram alert + takedown report (HIGH risk only) -> SQLite storage.
-Automatically captures/refreshes the brand reference screenshot on startup.
+Async CT ingestion: WebSocket reader -> fast filter -> asyncio.Queue -> N workers.
+The reader never blocks on DNS/Playwright/RDAP.
 """
 
 import argparse
+import asyncio
 import json
-import websocket
+from collections import OrderedDict
+
+import websockets
 
 from .permutation_filter import get_brand_settings, build_permutation_set, is_suspicious
-from src.storage.db import (
-    init_db, insert_candidate, update_liveness,
-    update_screenshot_path, update_visual_similarity,
-    update_content_signals, update_risk_score
-)
-from src.enrichment.dns_check import is_domain_live
-from src.enrichment.screenshot import capture_screenshot, ensure_reference_screenshot
-from src.enrichment.visual_similarity import compute_similarity
-from src.enrichment.content_signals import fetch_page_html, analyze_content
-from src.enrichment.punycode_decoder import decode_domain
-from src.enrichment.whois_lookup import get_whois_info
-from src.scoring.risk_score import compute_risk_score, risk_level
-from src.alerts.telegram_bot import send_alert
-from src.reporting.report_generator import generate_report
+from .pipeline import process_candidate
+from src.storage.db import init_db
+from src.enrichment.screenshot import ensure_reference_screenshot
 
 CERTSTREAM_URL = "ws://localhost:8081/full-stream"
+QUEUE_MAX = 5000        # backlog limit; extra candidates are dropped and counted
+SEEN_MAX = 50000        # recent domains remembered for de-duplication
+
+stats = {"messages": 0, "matched": 0, "duplicates": 0,
+         "dropped": 0, "processed": 0, "errors": 0}
 
 
-def on_message(ws, message, permutation_set, official_domain):
-    try:
-        data = json.loads(message)
+class RecentSet:
+    """Bounded set so the same domain isn't processed repeatedly."""
 
-        if data.get("message_type") != "certificate_update":
-            return
+    def __init__(self, maxlen):
+        self.maxlen = maxlen
+        self.data = OrderedDict()
 
-        leaf_cert = data["data"]["leaf_cert"]
-        domains = leaf_cert.get("all_domains", [])
-
-        for domain in domains:
-            if is_suspicious(domain, permutation_set, official_domain=official_domain):
-                print(f"[SUSPICIOUS MATCH] {domain}")
-
-                decoded, is_puny = decode_domain(domain)
-                if is_puny:
-                    print(f"  -> Decoded (Punycode): {decoded}")
-
-                candidate_id = insert_candidate(domain, official_domain, decoded_domain=decoded if is_puny else None)
-
-                live = is_domain_live(domain)
-                update_liveness(candidate_id, live)
-                print(f"  -> DNS check: {'LIVE' if live else 'not live'}")
-
-                similarity = None
-                has_login = False
-                phrase_count = 0
-                screenshot_path = None
-
-                if live:
-                    screenshot_path = capture_screenshot(domain)
-                    if screenshot_path:
-                        update_screenshot_path(candidate_id, screenshot_path)
-                        similarity = compute_similarity(screenshot_path)
-                        if similarity is not None:
-                            update_visual_similarity(candidate_id, similarity)
-                            print(f"  -> Visual similarity: {similarity}")
-
-                    html = fetch_page_html(domain)
-                    content_result = analyze_content(html)
-                    has_login = content_result["has_login_form"]
-                    phrase_count = len(content_result["suspicious_phrases_found"])
-                    update_content_signals(candidate_id, has_login)
-                    print(f"  -> Login form detected: {has_login}")
-
-                score, breakdown = compute_risk_score(live, similarity, has_login, phrase_count)
-                level = risk_level(score)
-                update_risk_score(candidate_id, score, level)
-                print(f"  -> RISK SCORE: {score}/100 ({level})")
-
-                if level == "HIGH":
-                    sent = send_alert(domain, score, level, official_domain)
-                    print(f"  -> Telegram alert sent: {sent}")
-
-                    whois_info = get_whois_info(domain)
-
-                    candidate_record = {
-                        "domain": domain,
-                        "decoded_domain": decoded if is_puny else None,
-                        "matched_brand": official_domain,
-                        "detected_at": "just now",
-                        "is_live": live,
-                        "visual_similarity": similarity,
-                        "has_login_form": has_login,
-                        "risk_score": score,
-                        "risk_level": level,
-                        "screenshot_path": screenshot_path,
-                    }
-
-                    report_path = generate_report(candidate_record, whois_info)
-                    print(f"  -> Takedown report generated: {report_path}")
-
-    except Exception as e:
-        print(f"Error processing message: {e}")
+    def add_if_new(self, item):
+        if item in self.data:
+            return False
+        self.data[item] = None
+        if len(self.data) > self.maxlen:
+            self.data.popitem(last=False)
+        return True
 
 
-def on_error(ws, error):
-    print(f"Websocket error: {error}")
+async def producer(queue, permutation_set, official_domain, seen):
+    backoff = 1
+    while True:
+        try:
+            async with websockets.connect(CERTSTREAM_URL, max_size=None, ping_interval=20) as ws:
+                print("Connected to certstream-server-go. Watching for typosquat matches...\n")
+                backoff = 1
+                async for message in ws:
+                    stats["messages"] += 1
+                    try:
+                        data = json.loads(message)
+                        if data.get("message_type") != "certificate_update":
+                            continue
+                        domains = data["data"]["leaf_cert"].get("all_domains", [])
+                    except (ValueError, KeyError, TypeError):
+                        continue
+
+                    for domain in domains:
+                        if not is_suspicious(domain, permutation_set, official_domain=official_domain):
+                            continue
+                        stats["matched"] += 1
+                        if not seen.add_if_new(domain):
+                            stats["duplicates"] += 1
+                            continue
+                        try:
+                            queue.put_nowait(domain)
+                        except asyncio.QueueFull:
+                            stats["dropped"] += 1
+        except (websockets.exceptions.WebSocketException, OSError) as e:
+            print(f"Connection lost ({e}). Reconnecting in {backoff}s...")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30)
 
 
-def on_close(ws, close_status_code, close_msg):
-    print("Connection closed.")
+async def worker(name, queue, official_domain):
+    while True:
+        domain = await queue.get()
+        try:
+            # Existing code is blocking (requests, Playwright sync API, sqlite3),
+            # so run it in a thread and keep the event loop free.
+            await asyncio.to_thread(process_candidate, domain, official_domain)
+            stats["processed"] += 1
+        except Exception as e:
+            stats["errors"] += 1
+            print(f"[{name}] Error processing {domain}: {e}", flush=True)
+        finally:
+            queue.task_done()
 
 
-def on_open(ws):
-    print("Connected to certstream-server-go. Watching for typosquat matches...\n")
+async def stats_reporter(queue):
+    while True:
+        await asyncio.sleep(30)
+        print(f"[STATS] {stats} | queue_size={queue.qsize()}", flush=True)
+
+
+async def main(official_domain, permutation_set, num_workers):
+    queue = asyncio.Queue(maxsize=QUEUE_MAX)
+    seen = RecentSet(SEEN_MAX)
+
+    tasks = [asyncio.create_task(producer(queue, permutation_set, official_domain, seen))]
+    tasks += [asyncio.create_task(worker(f"worker-{i + 1}", queue, official_domain))
+              for i in range(num_workers)]
+    tasks.append(asyncio.create_task(stats_reporter(queue)))
+
+    await asyncio.gather(*tasks)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--brand", help="Override brand domain, e.g. flipkart.com")
+    parser.add_argument("--workers", type=int, default=4, help="Number of enrichment workers")
     args = parser.parse_args()
 
     init_db()
-
     official_domain = get_brand_settings(cli_brand=args.brand)
     permutation_set = build_permutation_set(official_domain)
-
-    # Automatically ensure the reference screenshot matches the currently
-    # monitored brand -- no manual screenshot step required.
     ensure_reference_screenshot(official_domain)
 
     print(f"\nMonitoring for typosquats of: {official_domain}")
-    print(f"Loaded {len(permutation_set)} permutations to watch for.\n")
+    print(f"Loaded {len(permutation_set)} permutations to watch for.")
+    print(f"Starting {args.workers} workers.\n")
 
-    ws = websocket.WebSocketApp(
-        CERTSTREAM_URL,
-        on_open=on_open,
-        on_message=lambda ws, msg: on_message(ws, msg, permutation_set, official_domain),
-        on_error=on_error,
-        on_close=on_close,
-    )
-    ws.run_forever()
+    try:
+        asyncio.run(main(official_domain, permutation_set, args.workers))
+    except KeyboardInterrupt:
+        print("\nStopped.")
