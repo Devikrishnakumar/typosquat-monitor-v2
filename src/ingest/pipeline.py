@@ -27,6 +27,7 @@ from src.enrichment.ssl_metadata import get_ssl_metadata
 from src.enrichment.favicon_hash import get_favicon_hash
 from src.scoring.risk_score import compute_risk_score, risk_level
 from src.alerts.telegram_bot import send_alert
+from src.alerts.webhook_dispatcher import send_webhook_alerts
 from src.reporting.report_generator import generate_report
 
 
@@ -106,7 +107,13 @@ def process_candidate(domain, official_domain):
     if level == "HIGH":
         sent = send_alert(domain, score, level, official_domain)
         log(f"Telegram alert sent: {sent}")
-
+        
+        webhook_results = send_webhook_alerts({
+            "id": candidate_id, "domain": domain, "matched_brand": official_domain,
+            "risk_score": score, "risk_level": level,
+        })
+        for wh_id, wh_url, success, error in webhook_results:
+            log(f"Webhook {wh_id} ({wh_url}): {'sent' if success else f'FAILED - {error}'}")
         whois_info = get_whois_info(domain)
         candidate_record = {
             "domain": domain,

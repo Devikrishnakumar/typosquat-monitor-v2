@@ -1,7 +1,8 @@
 ﻿"""
 db.py
 Storage API on top of SQLAlchemy. Same function names as the old SQLite version,
-plus lifecycle (status/notes/audit), Phase 3/4 enrichment updates, and filtered queries.
+plus lifecycle (status/notes/audit), Phase 3/4 enrichment updates, Phase 5
+webhook management, and filtered queries.
 """
 
 from contextlib import contextmanager
@@ -13,9 +14,11 @@ from alembic.config import Config
 from sqlalchemy import select
 
 from .database import SessionLocal, DATABASE_URL, PROJECT_ROOT
-from .models import Candidate, CandidateEvent, STATUSES
+from .models import Candidate, CandidateEvent, Webhook, STATUSES
 
 DB_PATH = DATABASE_URL  # kept for backward compatibility
+
+RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 
 
 @contextmanager
@@ -182,6 +185,42 @@ def get_candidates(risk_min=None, brand=None, status=None, risk_level=None,
         return [r.to_dict() for r in s.scalars(stmt).all()]
 
 
+# ---------- Phase 5: webhooks ----------
+
+def register_webhook(url, label=None, min_risk_level="HIGH"):
+    if min_risk_level not in RISK_ORDER:
+        raise ValueError(f"Invalid min_risk_level '{min_risk_level}'. Allowed: {list(RISK_ORDER)}")
+    with session_scope() as s:
+        wh = Webhook(url=str(url), label=label, min_risk_level=min_risk_level)
+        s.add(wh)
+        s.flush()
+        return wh.to_dict()
+
+
+def get_webhooks():
+    with session_scope() as s:
+        rows = s.scalars(select(Webhook).order_by(Webhook.created_at.desc())).all()
+        return [r.to_dict() for r in rows]
+
+
+def delete_webhook(webhook_id):
+    with session_scope() as s:
+        wh = s.get(Webhook, webhook_id)
+        if wh is None:
+            raise ValueError(f"Webhook {webhook_id} not found")
+        s.delete(wh)
+
+
+def get_webhooks_for_risk_level(risk_level):
+    """Returns webhooks whose min_risk_level threshold is met or exceeded by risk_level."""
+    if risk_level not in RISK_ORDER:
+        return []
+    threshold = RISK_ORDER[risk_level]
+    with session_scope() as s:
+        rows = s.scalars(select(Webhook)).all()
+        return [r.to_dict() for r in rows if RISK_ORDER.get(r.min_risk_level, 99) <= threshold]
+
+
 if __name__ == "__main__":
     # Smoke test
     init_db()
@@ -196,6 +235,13 @@ if __name__ == "__main__":
     print(get_candidate(cid))
     print("events:", get_events(cid))
     print("filtered:", len(get_candidates(risk_min=70, status="under_investigation")))
+
+    wh = register_webhook("https://hooks.slack.com/test", label="Test Slack", min_risk_level="HIGH")
+    print("webhook:", wh)
+    print("webhooks for HIGH:", get_webhooks_for_risk_level("HIGH"))
+    print("webhooks for LOW:", get_webhooks_for_risk_level("LOW"))
+    delete_webhook(wh["id"])
+
     with session_scope() as s:            # clean up the test row
         s.delete(s.get(Candidate, cid))
     print("Database OK:", DATABASE_URL)

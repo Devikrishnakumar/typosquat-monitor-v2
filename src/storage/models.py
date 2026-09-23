@@ -1,6 +1,7 @@
 ﻿"""
 models.py
-ORM models: Candidate (with lifecycle fields + Phase 3 enrichment signals) and CandidateEvent (audit trail).
+ORM models: Candidate (with lifecycle fields + Phase 3/4 enrichment signals),
+CandidateEvent (audit trail), and Webhook (Phase 5: registered alert endpoints).
 """
 
 from datetime import datetime, timezone
@@ -33,7 +34,8 @@ class Candidate(Base):
     risk_score: Mapped[Optional[float]] = mapped_column(Float, index=True)
     risk_level: Mapped[Optional[str]] = mapped_column(String(10), index=True)
     screenshot_path: Mapped[Optional[str]] = mapped_column(String(500))
-        # Phase 4: SSIM visual detection
+
+    # Phase 4: SSIM visual detection
     ssim_similarity: Mapped[Optional[float]] = mapped_column(Float)
     combined_similarity: Mapped[Optional[float]] = mapped_column(Float)
 
@@ -75,3 +77,17 @@ class CandidateEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     candidate: Mapped["Candidate"] = relationship(back_populates="events")
+
+
+class Webhook(Base):
+    """Phase 5: registered outbound alert endpoints (Slack/Teams/SIEM/generic)."""
+    __tablename__ = "webhooks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    url: Mapped[str] = mapped_column(String(1000))
+    label: Mapped[Optional[str]] = mapped_column(String(255))
+    min_risk_level: Mapped[str] = mapped_column(String(10), default="HIGH")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    def to_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
