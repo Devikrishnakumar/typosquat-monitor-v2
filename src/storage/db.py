@@ -7,8 +7,6 @@ webhook management, and filtered queries.
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
-
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import select

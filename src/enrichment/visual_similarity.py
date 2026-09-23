@@ -10,7 +10,6 @@ compute_similarity() (pHash only) is kept unchanged for backward compatibility.
 compute_combined_similarity() runs both and returns a blended score.
 """
 
-import numpy as np
 import imagehash
 import cv2
 from PIL import Image
