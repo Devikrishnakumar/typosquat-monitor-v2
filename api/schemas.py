@@ -5,7 +5,7 @@ Pydantic models for API request/response validation.
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, ConfigDict, HttpUrl
 
 
 class CandidateOut(BaseModel):
@@ -35,8 +35,7 @@ class CandidateOut(BaseModel):
     status_changed_at: Optional[datetime] = None
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StatusUpdateRequest(BaseModel):
@@ -64,5 +63,4 @@ class WebhookOut(BaseModel):
     min_risk_level: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
