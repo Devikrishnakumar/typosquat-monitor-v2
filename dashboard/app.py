@@ -1,4 +1,4 @@
-﻿"""
+"""
 dashboard/app.py
 
 Typosquat & Brand Impersonation Monitor Dashboard.
@@ -20,6 +20,7 @@ Simulation is read-only:
 import os
 import sys
 import textwrap
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,6 +42,7 @@ from src.storage.db import get_all_candidates, init_db
 from src.enrichment.evidence_analyzer import run_simulation
 from src.enrichment.whois_lookup import get_whois_info
 from src.reporting.report_generator import generate_report
+from src.alerts.telegram_bot import send_simulation_alert
 
 
 # =========================================================
@@ -73,6 +75,103 @@ def render_html(value):
         html_block(value),
         unsafe_allow_html=True,
     )
+
+
+@st.fragment(run_every="5s")
+def render_certstream_feed():
+    """Render recent real certificate events from the worker's shared log."""
+
+    event_path = Path(ROOT_DIR) / "data" / "certstream_events.jsonl"
+
+    if not event_path.exists():
+        st.info("Waiting for the first live certificate event.")
+        return
+
+    try:
+        # The logger maintains a bounded file, so reading it is inexpensive.
+        lines = event_path.read_text(encoding="utf-8").splitlines()[-200:]
+    except OSError:
+        st.warning("The live event log is temporarily unavailable.")
+        return
+
+    events = []
+
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        # Do not display simulation data or unrelated log entries.
+        if (
+            isinstance(event, dict)
+            and event.get("source") == "LIVE_CERTSTREAM"
+            and event.get("event_type") == "certificate_update"
+        ):
+            events.append(event)
+
+    if not events:
+        st.info("Waiting for real certificate updates from CertStream.")
+        return
+
+    latest_events = list(reversed(events[-8:]))
+
+    st.caption(
+        f"Latest {len(latest_events)} live certificate events ? "
+        "refreshes every 5 seconds"
+    )
+
+    for event in latest_events:
+        domains = event.get("domains") or []
+        if not isinstance(domains, list):
+            domains = []
+
+        domains = [str(domain)[:253] for domain in domains[:10]]
+        primary_domain = domains[0] if domains else "Domain unavailable"
+
+        matched_domains = event.get("matched_domains") or []
+        if not isinstance(matched_domains, list):
+            matched_domains = []
+
+        issuer = str(event.get("issuer") or "Not provided")[:160]
+        observed_at = str(event.get("observed_at") or "Time unavailable")
+
+        try:
+            event_time = datetime.fromisoformat(
+                observed_at.replace("Z", "+00:00")
+            )
+            if event_time.tzinfo is None:
+                event_time = event_time.replace(tzinfo=timezone.utc)
+            time_label = event_time.astimezone().strftime(
+                "%b %d, %H:%M:%S"
+            )
+        except (ValueError, TypeError):
+            time_label = observed_at[:32]
+
+        with st.container(border=True):
+            event_cols = st.columns([0.68, 0.32])
+
+            with event_cols[0]:
+                st.text(primary_domain)
+
+            with event_cols[1]:
+                if event.get("brand_match") and matched_domains:
+                    st.markdown("**BRAND MATCH**")
+                else:
+                    st.caption("No brand match")
+
+            st.caption(f"{time_label} ? {issuer}")
+
+            if len(domains) > 1:
+                st.caption(
+                    f"{len(domains) - 1} additional certificate domain(s)"
+                )
+
+            if matched_domains:
+                st.text(
+                    "Matched permutation: "
+                    + ", ".join(str(item)[:253] for item in matched_domains[:3])
+                )
 
 
 # =========================================================
@@ -725,7 +824,188 @@ render_html(
         margin-top: 7px;
     }
 
-    </style>
+    
+
+/* CYBER GREEN THEME OVERRIDES */
+.stApp {
+    background: #07130D;
+    color: #E4F8EB;
+}
+[data-testid="stHeader"] {
+    background: rgba(7, 19, 13, 0.96);
+}
+[data-testid="stSidebar"] {
+    background: #08160F;
+    border-right: 1px solid #1C633B;
+}
+[data-testid="stSidebar"] * {
+    color: #D8F2E0;
+}
+.dashboard-title {
+    color: #4DFF91 !important;
+    text-shadow: 0 0 14px rgba(77, 255, 145, 0.18);
+}
+.dashboard-subtitle {
+    color: #9AB8A4 !important;
+}
+.stApp [data-testid="stMetric"] {
+    background: #0C2115;
+    border: 1px solid #247B48;
+    border-radius: 12px;
+    padding: 14px;
+}
+.stApp [data-testid="stMetricLabel"] {
+    color: #A9CDB5;
+}
+.stApp [data-testid="stMetricValue"] {
+    color: #4DFF91;
+}
+.stApp [data-testid="stVerticalBlockBorderWrapper"] {
+    border-color: #1C633B;
+    border-radius: 12px;
+}
+.stApp h1, .stApp h2, .stApp h3 {
+    color: #D8F2E0;
+}
+.stApp p, .stApp label {
+    color: #C4DCCB;
+}
+.stApp [data-testid="stDataFrame"] {
+    border: 1px solid #1C633B;
+    border-radius: 8px;
+}
+.stApp [data-testid="stProgressBar"] > div > div {
+    background-color: #4DFF91;
+}
+.stApp .stButton > button {
+    background: #103D25;
+    color: #4DFF91;
+    border: 1px solid #2AA85C;
+    border-radius: 8px;
+}
+.stApp .stButton > button:hover {
+    background: #175532;
+    border-color: #4DFF91;
+    color: #FFFFFF;
+}
+.stApp input, .stApp textarea {
+    background: #0B1E14;
+    color: #E4F8EB;
+    border-color: #247B48;
+}
+@media (max-width: 768px) {
+    .dashboard-title {
+        font-size: 28px !important;
+    }
+    .dashboard-subtitle {
+        font-size: 13px !important;
+    }
+}
+
+
+
+/* FINAL CYBER GREEN OVERRIDES */
+:root {
+    color-scheme: dark;
+}
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"] {
+    background-color: #07130D !important;
+    color: #E4F8EB !important;
+}
+[data-testid="stHeader"] {
+    background-color: #07130D !important;
+}
+section[data-testid="stSidebar"],
+[data-testid="stSidebar"] > div {
+    background-color: #08160F !important;
+    border-right: 1px solid #247B48 !important;
+}
+section[data-testid="stSidebar"] * {
+    color: #D8F2E0 !important;
+}
+.dashboard-title {
+    color: #4DFF91 !important;
+    text-shadow: 0 0 12px rgba(77, 255, 145, 0.18);
+}
+.dashboard-subtitle {
+    color: #A6C7B1 !important;
+}
+.stApp [data-testid="stVerticalBlockBorderWrapper"] {
+    border-color: #24583A !important;
+    border-radius: 12px !important;
+}
+.stApp [data-testid="stMetric"] {
+    background: #0B2115 !important;
+    border: 1px solid #247B48 !important;
+    border-radius: 10px !important;
+    padding: 12px !important;
+}
+.stApp [data-testid="stMetricLabel"] {
+    color: #B5D5BF !important;
+}
+.stApp [data-testid="stMetricValue"] {
+    color: #4DFF91 !important;
+}
+.stApp h1, .stApp h2, .stApp h3 {
+    color: #DDF8E6;
+}
+.stApp [data-testid="stMarkdownContainer"] p,
+.stApp [data-testid="stCaptionContainer"] {
+    color: #B2CDBA;
+}
+.stApp [data-testid="stDataFrame"] {
+    border: 1px solid #24583A;
+    border-radius: 8px;
+}
+.stApp .stButton > button {
+    background: #103D25 !important;
+    color: #4DFF91 !important;
+    border: 1px solid #2AA85C !important;
+    border-radius: 8px !important;
+}
+.stApp .stButton > button:hover {
+    background: #175532 !important;
+    border-color: #4DFF91 !important;
+}
+.stApp input, .stApp textarea {
+    background-color: #0B1E14 !important;
+    color: #E4F8EB !important;
+    border-color: #247B48 !important;
+}
+.stApp [data-testid="stRadio"] label {
+    color: #D8F2E0 !important;
+}
+@media (max-width: 900px) {
+    .dashboard-title {
+        font-size: 28px !important;
+    }
+    [data-testid="stSidebar"] {
+        min-width: 0;
+    }
+}
+
+
+
+/* CYBER GREEN TOP BAR FIX */
+[data-testid="stAppViewContainer"],
+[data-testid="stHeader"],
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+[data-testid="stStatusWidget"],
+header[data-testid="stHeader"] {
+    background: #07130D !important;
+    background-color: #07130D !important;
+}
+[data-testid="stHeader"] {
+    border-bottom: 1px solid #1C633B !important;
+}
+[data-testid="stToolbar"] {
+    color: #4DFF91 !important;
+}
+
+</style>
     """
 )
 
@@ -1168,258 +1448,126 @@ if page == "Dashboard":
 
     render_html(
         """
-        <div class="dashboard-title">
-        Dashboard
-        </div>
-
+        <div class="dashboard-title">Typosquat Dashboard</div>
         <div class="dashboard-subtitle">
-        Overview of typosquat and brand-impersonation activity
+        Monitor stored brand-impersonation candidates and incoming certificate events
         </div>
         """
     )
 
     if df.empty:
-
         total = 0
         high = 0
         medium = 0
         low = 0
-
     else:
-
         total = len(df)
+        levels = df["risk_level"].fillna("").astype(str).str.upper()
+        high = int((levels == "HIGH").sum())
+        medium = int((levels == "MEDIUM").sum())
+        low = int((levels == "LOW").sum())
 
-        high = len(
-            df[
-                df["risk_level"]
-                .fillna("")
-                .astype(str)
-                .str.upper()
-                == "HIGH"
-            ]
-        )
+    center, feed = st.columns([2.2, 1], gap="large")
 
-        medium = len(
-            df[
-                df["risk_level"]
-                .fillna("")
-                .astype(str)
-                .str.upper()
-                == "MEDIUM"
-            ]
-        )
-
-        low = len(
-            df[
-                df["risk_level"]
-                .fillna("")
-                .astype(str)
-                .str.upper()
-                == "LOW"
-            ]
-        )
-
-    cols = st.columns(4)
-
-    with cols[0]:
-        metric_card(
-            "TOTAL MATCHED",
-            total,
-            "PostgreSQL candidates",
-        )
-
-    with cols[1]:
-        metric_card(
-            "HIGH RISK",
-            high,
-            "Stored HIGH records",
-        )
-
-    with cols[2]:
-        metric_card(
-            "MEDIUM RISK",
-            medium,
-            "Stored MEDIUM records",
-        )
-
-    with cols[3]:
-        metric_card(
-            "LOW RISK",
-            low,
-            "Stored LOW records",
-        )
-
-    st.write("")
-
-    left, right = st.columns(
-        [1.6, 1]
-    )
-
-    with left:
-
-        render_html(
-            """
-            <div class="section-card">
-            """
-        )
-
-        st.subheader(
-            "Detection Activity"
-        )
-
-        if df.empty:
-
-            st.info(
-                "Waiting for live candidates."
+    with center:
+        with st.container(border=True):
+            st.subheader("Total Matches")
+            st.metric("Stored PostgreSQL candidates", total)
+            st.caption(
+                "This total represents stored candidate records, not every "
+                "certificate event received from CertStream."
             )
 
-        elif "detected_at" in df.columns:
+        risk_cols = st.columns(3, gap="medium")
 
-            chart_data = df.copy()
+        with risk_cols[0]:
+            with st.container(border=True):
+                st.markdown("**HIGH RISK**")
+                st.metric("High", high)
 
-            chart_data["detected_at"] = pd.to_datetime(
-                chart_data["detected_at"],
-                errors="coerce",
-                utc=True,
-            )
+        with risk_cols[1]:
+            with st.container(border=True):
+                st.markdown("**MEDIUM RISK**")
+                st.metric("Medium", medium)
 
-            chart_data = chart_data.dropna(
-                subset=["detected_at"]
-            )
+        with risk_cols[2]:
+            with st.container(border=True):
+                st.markdown("**LOW RISK**")
+                st.metric("Low", low)
 
-            if chart_data.empty:
+        with st.container(border=True):
+            st.subheader("Detection Activity")
 
-                st.info(
-                    "No timestamp data available."
+            if df.empty:
+                st.info("Waiting for matched candidates.")
+            elif "detected_at" in df.columns:
+                chart_data = df.copy()
+                chart_data["detected_at"] = pd.to_datetime(
+                    chart_data["detected_at"],
+                    errors="coerce",
+                    utc=True,
                 )
+                chart_data = chart_data.dropna(subset=["detected_at"])
 
+                if chart_data.empty:
+                    st.info("No valid detection timestamps are available.")
+                else:
+                    chart_data["date"] = chart_data["detected_at"].dt.date
+                    activity = chart_data.groupby("date").size().rename("detections")
+                    st.bar_chart(activity, height=220)
             else:
+                st.info("Detection timestamps are not available.")
 
-                chart_data["date"] = (
-                    chart_data["detected_at"].dt.date
+        with st.container(border=True):
+            st.subheader("Risk Distribution")
+
+            if total == 0:
+                st.info("No stored risk data available.")
+            else:
+                risk_data = pd.DataFrame(
+                    {
+                        "Risk": ["HIGH", "MEDIUM", "LOW"],
+                        "Count": [high, medium, low],
+                    }
                 )
+                st.bar_chart(risk_data.set_index("Risk"), height=200)
 
-                activity = (
-                    chart_data
-                    .groupby("date")
-                    .size()
-                    .rename("detections")
-                )
+        with st.container(border=True):
+            st.subheader("Recent Matched Websites")
 
-                st.bar_chart(
-                    activity,
-                    height=260,
-                )
+            if df.empty:
+                st.info("No matched websites yet.")
+            else:
+                display_columns = [
+                    "id",
+                    "domain",
+                    "matched_brand",
+                    "visual_similarity",
+                    "has_login_form",
+                    "risk_score",
+                    "risk_level",
+                    "detected_at",
+                ]
+                available = [col for col in display_columns if col in df.columns]
 
-        else:
+                if available:
+                    st.dataframe(
+                        df[available].head(15),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info("No displayable candidate columns are available.")
 
-            st.info(
-                "Detection timestamp is not available."
+    with feed:
+        with st.container(border=True):
+            st.subheader("Live CertStream Feed")
+            st.caption(
+                "Incoming certificate events refresh every 5 seconds. "
+                "An event is not automatically a confirmed threat."
             )
+            render_certstream_feed()
 
-        render_html(
-            """
-            </div>
-            """
-        )
-
-    with right:
-
-        render_html(
-            """
-            <div class="section-card">
-            """
-        )
-
-        st.subheader(
-            "Risk Distribution"
-        )
-
-        if total == 0:
-
-            st.info(
-                "No risk data available."
-            )
-
-        else:
-
-            risk_data = pd.DataFrame(
-                {
-                    "Risk": [
-                        "HIGH",
-                        "MEDIUM",
-                        "LOW",
-                    ],
-                    "Count": [
-                        high,
-                        medium,
-                        low,
-                    ],
-                }
-            )
-
-            st.bar_chart(
-                risk_data.set_index("Risk"),
-                height=260,
-            )
-
-        render_html(
-            """
-            </div>
-            """
-        )
-
-    render_html(
-        """
-        <div class="section-card">
-        """
-    )
-
-    st.subheader(
-        "Recent Matched Websites"
-    )
-
-    if df.empty:
-
-        st.info(
-            "No matched websites yet."
-        )
-
-    else:
-
-        display_columns = [
-            "id",
-            "domain",
-            "matched_brand",
-            "visual_similarity",
-            "has_login_form",
-            "risk_score",
-            "risk_level",
-            "detected_at",
-        ]
-
-        available = [
-            col
-            for col in display_columns
-            if col in df.columns
-        ]
-
-        st.dataframe(
-            df[available].head(15),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-    render_html(
-        """
-        </div>
-        """
-    )
-
-
-# =========================================================
-# LIVE DETECTION
-# =========================================================
 
 elif page == "Live Detection":
 
@@ -1759,7 +1907,6 @@ elif page == "Simulation":
     # =====================================================
 
     if trigger:
-
         trigger_number = (
             st.session_state[
                 "simulation_trigger_count"
@@ -1770,8 +1917,6 @@ elif page == "Simulation":
             "simulation_trigger_count"
         ] = trigger_number
 
-
-        # Cycle automatically after trigger 6.
         cycle_index = (
             (trigger_number - 1)
             % len(RISK_CYCLE)
@@ -1781,18 +1926,24 @@ elif page == "Simulation":
             cycle_index
         ]
 
-
         match = {
-            "test_number": trigger_number,
+            "test_number":
+                trigger_number,
 
             "match_id":
                 f"SIM-{trigger_number:03d}",
 
             "domain":
+                "simulation-site:8765",
+
+            "display_domain":
                 f"simulation-match-{trigger_number:03d}.test",
 
             "matched_brand":
                 "paypal.com",
+
+            "simulation_reference_domain":
+                "simulation-site:8765/reference.html",
 
             "risk_level":
                 scenario["level"],
@@ -1816,45 +1967,155 @@ elif page == "Simulation":
                 datetime.now(
                     timezone.utc
                 ).isoformat(),
+
+            "report_path":
+                None,
+
+            "report_generated":
+                False,
+
+            "evidence_status":
+                "pending",
         }
 
+        # Keep simulation alerts independent of evidence/report generation.
+        match["alert_sent"] = False
+        match["alert_status"] = "not_required"
 
-        # Get current results.
+        if str(match.get("risk_level", "")).upper() in {"MEDIUM", "HIGH"}:
+            match["alert_status"] = "pending"
+
+            try:
+                match["alert_sent"] = bool(
+                    send_simulation_alert(match)
+                )
+
+                match["alert_status"] = (
+                    "sent" if match["alert_sent"] else "failed"
+                )
+
+                if match["alert_sent"]:
+                    st.success(
+                        f"Simulation Telegram alert sent for "
+                        f"{match['match_id']}."
+                    )
+                else:
+                    st.warning(
+                        f"Telegram alert was not delivered for "
+                        f"{match['match_id']}. "
+                        "Simulation analysis will continue."
+                    )
+
+            except Exception as alert_exc:
+                match["alert_status"] = "failed"
+                match["alert_error"] = str(alert_exc)
+
+                st.warning(
+                    f"Telegram alert failed for {match['match_id']}. "
+                    "Simulation analysis will continue."
+                )
+
+        try:
+            evidence = run_simulation(
+                match
+            )
+
+            report_path = generate_report(
+                match,
+                simulation_evidence=evidence,
+            )
+
+            match["evidence_status"] = (
+                evidence.get(
+                    "status",
+                    "completed",
+                )
+            )
+
+            match["evidence_risk_score"] = (
+                evidence.get(
+                    "risk_score"
+                )
+            )
+
+            match["evidence_risk_level"] = (
+                evidence.get(
+                    "risk_level"
+                )
+            )
+
+            match["visual_similarity"] = (
+                evidence.get(
+                    "visual_similarity"
+                )
+            )
+
+            match["login_similarity"] = (
+                evidence.get(
+                    "login_similarity"
+                )
+            )
+
+            match["report_path"] = (
+                report_path
+            )
+
+            match["report_generated"] = (
+                bool(report_path)
+            )
+
+            if report_path:
+                st.success(
+                    (
+                        f"Simulation #{trigger_number} "
+                        "completed and PDF report generated."
+                    )
+                )
+            else:
+                st.warning(
+                    (
+                        f"Simulation #{trigger_number} "
+                        "completed, but PDF generation failed."
+                    )
+                )
+
+        except Exception as exc:
+            match["evidence_status"] = "failed"
+            match["report_generated"] = False
+            match["report_error"] = str(exc)
+
+            st.error(
+                (
+                    f"Simulation #{trigger_number} "
+                    f"backend analysis failed: {exc}"
+                )
+            )
+
         current_matches = list(
             st.session_state[
                 "simulation_matches"
             ]
         )
 
-
-        # Add ONLY this new result.
         current_matches.append(
             match
         )
 
-
-        # Keep latest six so the current six-test
-        # distribution remains visible.
         current_matches = (
             current_matches[-6:]
         )
-
 
         st.session_state[
             "simulation_matches"
         ] = current_matches
 
-
         st.toast(
             (
                 f"Simulation #{trigger_number}: "
-                f"{scenario['level']} risk generated"
+                f"{scenario['level']} scenario analyzed"
             ),
-            icon="🎯",
         )
 
-
-    # =====================================================
     # CURRENT RESULTS
     # =====================================================
 
@@ -2178,6 +2439,87 @@ elif page == "Simulation":
 
     st.write("")
 
+    # =====================================================
+    # GENERATED PDF REPORT
+    # =====================================================
+
+    if matches:
+
+        latest_report_match = matches[-1]
+
+        latest_report_path = (
+            latest_report_match.get("report_path")
+        )
+
+        if (
+            latest_report_path
+            and latest_report_match.get("report_generated")
+        ):
+
+            try:
+                with open(
+                    latest_report_path,
+                    "rb",
+                ) as pdf_file:
+
+                    pdf_bytes = pdf_file.read()
+
+                report_name = (
+                    str(latest_report_path)
+                    .replace("\\", "/")
+                    .rsplit("/", 1)[-1]
+                )
+
+                render_html(
+                    f"""
+                    <div class="simulation-note">
+
+                    <strong>
+                    REPORT GENERATED
+                    </strong>
+
+                    <br><br>
+
+                    Simulation:
+                    <strong>
+                    {latest_report_match["match_id"]}
+                    </strong>
+
+                    <br>
+
+                    Report:
+                    <strong>
+                    {report_name}
+                    </strong>
+
+                    <br><br>
+
+                    The backend completed the evidence analysis
+                    and generated the PDF report successfully.
+
+                    </div>
+                    """
+                )
+
+                st.download_button(
+                    "DOWNLOAD PDF REPORT",
+                    data=pdf_bytes,
+                    file_name=report_name,
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key=(
+                        "download_pdf_"
+                        + latest_report_match["match_id"]
+                    ),
+                )
+
+            except Exception as report_error:
+
+                st.error(
+                    "PDF generated, but could not be opened: "
+                    + str(report_error)
+                )
+
     st.subheader(
         "Generated Simulation Matches"
     )
@@ -2376,3 +2718,6 @@ elif page == "Simulation":
             </div>
             """
         )
+
+
+

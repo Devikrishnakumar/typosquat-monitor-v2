@@ -114,15 +114,27 @@ def generate_report(
             else candidate.get("has_login_form")
         ),
         "risk_score": (
-            simulation_evidence.get("risk_score")
+            candidate.get("risk_score")
             if is_simulation
             else candidate.get("risk_score")
         ),
         "risk_level": (
-            simulation_evidence.get("risk_level")
+            candidate.get("risk_level")
             if is_simulation
             else candidate.get("risk_level")
         ) or "LOW",
+
+        "evidence_risk_score": (
+            simulation_evidence.get("risk_score")
+            if is_simulation
+            else None
+        ),
+
+        "evidence_risk_level": (
+            simulation_evidence.get("risk_level")
+            if is_simulation
+            else None
+        ),
 
         "screenshot_path": suspicious_home_screenshot,
         "reference_screenshot_path": reference_home_screenshot,

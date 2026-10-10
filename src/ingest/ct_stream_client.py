@@ -1,4 +1,4 @@
-﻿"""
+"""
 ct_stream_client.py
 Full pipeline: CT stream -> typosquat filter -> punycode decode -> DNS check ->
 screenshot -> visual similarity -> content signals -> composite risk score ->
@@ -9,6 +9,8 @@ Automatically captures/refreshes the brand reference screenshot on startup.
 import argparse
 import json
 import os
+from datetime import datetime, timezone
+from pathlib import Path
 import websocket
 
 from .permutation_filter import get_brand_settings, build_permutation_set, is_suspicious
@@ -29,6 +31,79 @@ from src.reporting.report_generator import generate_report
 
 CERTSTREAM_URL = os.getenv("CERTSTREAM_URL", "ws://localhost:8081/full-stream")
 
+EVENT_LOG_PATH = Path(
+    os.getenv(
+        "CERTSTREAM_EVENT_LOG",
+        str(Path(__file__).resolve().parents[2] / "data" / "certstream_events.jsonl"),
+    )
+)
+
+
+def record_certstream_event(leaf_cert, domains, permutation_set, official_domain):
+    """Write a genuine certificate update to the shared rolling event log."""
+
+    try:
+        domain_names = [
+            str(domain)[:253]
+            for domain in domains
+            if isinstance(domain, str) and domain.strip()
+        ]
+
+        matched_domains = [
+            domain for domain in domain_names
+            if is_suspicious(
+                domain,
+                permutation_set,
+                official_domain=official_domain,
+            )
+        ]
+
+        issuer_data = leaf_cert.get("issuer") or {}
+        if isinstance(issuer_data, dict):
+            issuer = (
+                issuer_data.get("O")
+                or issuer_data.get("organizationName")
+                or issuer_data.get("CN")
+                or "Not provided"
+            )
+        else:
+            issuer = str(issuer_data) if issuer_data else "Not provided"
+
+        event = {
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "event_type": "certificate_update",
+            "domain_count": len(domain_names),
+            "domains": domain_names[:10],
+            "issuer": str(issuer)[:200],
+            "matched_domains": matched_domains[:10],
+            "matched_brand": official_domain if matched_domains else None,
+            "brand_match": bool(matched_domains),
+            "certificate_not_before": leaf_cert.get("not_before"),
+            "certificate_not_after": leaf_cert.get("not_after"),
+            "fingerprint": leaf_cert.get("fingerprint"),
+            "source": "LIVE_CERTSTREAM",
+        }
+
+        EVENT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        with EVENT_LOG_PATH.open("a", encoding="utf-8") as event_file:
+            import json
+            event_file.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+        if EVENT_LOG_PATH.stat().st_size > 2 * 1024 * 1024:
+            lines = EVENT_LOG_PATH.read_text(
+                encoding="utf-8"
+            ).splitlines()
+
+            EVENT_LOG_PATH.write_text(
+                "\n".join(lines[-200:]) + "\n",
+                encoding="utf-8",
+            )
+
+    except Exception as exc:
+        print(f"[EVENT FEED] Could not record certificate update: {exc}")
+
+
 
 def on_message(ws, message, permutation_set, official_domain):
     try:
@@ -39,6 +114,13 @@ def on_message(ws, message, permutation_set, official_domain):
 
         leaf_cert = data["data"]["leaf_cert"]
         domains = leaf_cert.get("all_domains", [])
+
+        record_certstream_event(
+            leaf_cert,
+            domains,
+            permutation_set,
+            official_domain,
+        )
 
         for domain in domains:
             if is_suspicious(domain, permutation_set, official_domain=official_domain):
@@ -80,10 +162,17 @@ def on_message(ws, message, permutation_set, official_domain):
                 update_risk_score(candidate_id, score, level)
                 print(f"  -> RISK SCORE: {score}/100 ({level})")
 
-                if level == "HIGH":
-                    sent = send_alert(domain, score, level, official_domain)
+                if level in {"MEDIUM", "HIGH"}:
+                    sent = send_alert(
+                        domain,
+                        score,
+                        level,
+                        official_domain,
+                        source="LIVE",
+                    )
                     print(f"  -> Telegram alert sent: {sent}")
 
+                if level == "HIGH":
                     whois_info = get_whois_info(domain)
 
                     candidate_record = {

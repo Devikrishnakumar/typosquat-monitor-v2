@@ -1,4 +1,4 @@
-﻿services:
+services:
   db:
     image: postgres:15-alpine
     container_name: typosquat-db
@@ -44,6 +44,8 @@
   dashboard:
     build: .
     container_name: typosquat-dashboard
+    env_file:
+      - .env
     command: ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
     environment:
       - DATABASE_URL=postgresql://typosquat_user:typosquat_pass@db:5432/typosquat
@@ -60,5 +62,17 @@
       - db
     restart: unless-stopped
 
+  simulation-site:
+    image: python:3.12-alpine
+    container_name: typosquat-simulation-site
+    working_dir: /app
+    command: ["python", "-m", "http.server", "8765", "--bind", "0.0.0.0"]
+    volumes:
+      - ./simulation_site:/app:ro
+    ports:
+      - "8765:8765"
+    restart: unless-stopped
+
 volumes:
   pgdata:
+

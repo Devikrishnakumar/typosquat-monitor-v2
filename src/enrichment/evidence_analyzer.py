@@ -381,7 +381,10 @@ def run_simulation(candidate):
     if not domain:
         raise ValueError("Selected candidate has no domain.")
 
-    official_domain = _load_official_domain(matched_brand)
+    official_domain = (
+        candidate.get("simulation_reference_domain")
+        or _load_official_domain(matched_brand)
+    )
 
     os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
