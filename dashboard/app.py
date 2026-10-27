@@ -21,6 +21,8 @@ import os
 import sys
 import textwrap
 import json
+import socket
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -75,6 +77,29 @@ def render_html(value):
         html_block(value),
         unsafe_allow_html=True,
     )
+
+
+def check_simulation_dns(domain):
+    """Check DNS for the simulation hostname without treating it as a public domain."""
+    raw = str(domain or "").strip()
+    if not raw:
+        return "Not checked", [], "No hostname was provided."
+
+    parsed = urlsplit(raw if "://" in raw else f"http://{raw}")
+    hostname = parsed.hostname
+    if not hostname:
+        return "Not checked", [], "The hostname could not be parsed."
+
+    try:
+        records = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+        addresses = sorted({record[4][0] for record in records if record and record[4]})
+        if addresses:
+            return "Resolved", addresses, "The hostname resolved inside the dashboard container's network."
+        return "No address returned", [], "DNS returned no address records."
+    except socket.gaierror:
+        return "Not resolved", [], "The hostname did not resolve from the dashboard container."
+    except Exception as exc:
+        return "Check error", [], f"DNS check could not complete: {exc}"
 
 
 @st.fragment(run_every="5s")
@@ -258,14 +283,19 @@ render_html(
        ===================================================== */
 
     .metric-card {
-        background: var(--secondary-background-color, #ffffff);
-        color: var(--text-color, #252262);
-        border: 1px solid rgba(128, 128, 128, 0.16);
-        border-radius: 15px;
-        padding: 18px;
-        min-height: 120px;
-        box-shadow: 0 5px 18px rgba(60, 55, 120, 0.07);
-    }
+    box-sizing: border-box;
+    width: 100%;
+    height: 170px;
+    min-height: 170px;
+    padding: 20px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
 
     .metric-label {
         color: var(--text-color, #7d8297);
@@ -319,15 +349,18 @@ render_html(
        ===================================================== */
 
     .risk-box {
-        background: var(--secondary-background-color, #ffffff);
-        color: var(--text-color, #252262);
-        border: 1px solid rgba(128, 128, 128, 0.16);
-        border-radius: 15px;
-        padding: 22px;
-        text-align: center;
-        min-height: 155px;
-        box-shadow: 0 5px 18px rgba(60, 55, 120, 0.055);
-    }
+    box-sizing: border-box;
+    width: 100%;
+    height: 170px;
+    min-height: 170px;
+    padding: 20px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
 
     .risk-box-title {
         color: var(--text-color, #777b91);
@@ -1005,6 +1038,139 @@ header[data-testid="stHeader"] {
     color: #4DFF91 !important;
 }
 
+
+
+    /* =====================================================
+       CLEAN SIMULATION PAGE POLISH
+       ===================================================== */
+    [data-testid="stMainBlockContainer"] {
+        max-width: 1500px;
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }
+
+    .dashboard-title {
+        font-size: clamp(28px, 3vw, 38px);
+        line-height: 1.15;
+        margin-bottom: 8px;
+    }
+
+    .dashboard-subtitle {
+        font-size: 14px;
+        line-height: 1.65;
+        margin-bottom: 22px;
+    }
+
+    .simulation-note {
+        border: 1px solid rgba(59, 130, 246, 0.25);
+        border-left: 4px solid #3b82f6;
+        border-radius: 14px;
+        padding: 18px 20px;
+        line-height: 1.8;
+        margin: 12px 0 24px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+
+    .metric-card, .section-card, .risk-box {
+        border-radius: 16px;
+        box-shadow: 0 6px 22px rgba(15, 23, 42, 0.07);
+        transition: border-color .18s ease, transform .18s ease;
+    }
+
+    .metric-card {
+        padding: 20px;
+        min-height: 132px;
+    }
+
+    .metric-label, .risk-box-title {
+        font-size: 11px;
+        letter-spacing: .8px;
+        line-height: 1.5;
+    }
+
+    .metric-value, .risk-number {
+        font-variant-numeric: tabular-nums;
+        line-height: 1.25;
+    }
+
+    .section-card {
+        padding: 20px;
+        margin: 8px 0 20px;
+    }
+
+    .risk-box {
+        min-height: 170px;
+        padding: 24px 18px;
+    }
+
+    [data-testid="stMetric"] {
+        background: var(--secondary-background-color, #fff);
+        border: 1px solid rgba(128, 128, 128, .16);
+        border-radius: 13px;
+        padding: 14px 16px;
+        min-height: 96px;
+    }
+
+    [data-testid="stMetricLabel"] p {
+        font-size: 12px;
+        line-height: 1.4;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: clamp(20px, 2vw, 28px);
+        font-weight: 750;
+        overflow-wrap: anywhere;
+    }
+
+    [data-testid="stButton"] > button,
+    [data-testid="stDownloadButton"] > button {
+        border-radius: 11px;
+        min-height: 44px;
+        font-weight: 700;
+        letter-spacing: .15px;
+        transition: transform .15s ease, box-shadow .15s ease;
+    }
+
+    [data-testid="stButton"] > button:hover,
+    [data-testid="stDownloadButton"] > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 7px 18px rgba(59, 130, 246, .18);
+    }
+
+    [data-testid="stDataFrame"], [data-testid="stTable"] {
+        border: 1px solid rgba(128, 128, 128, .16);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    [data-testid="stExpander"] {
+        border: 1px solid rgba(128, 128, 128, .18);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    h2, h3, h4 {
+        letter-spacing: -.25px;
+        line-height: 1.35;
+    }
+
+    [data-testid="stAlert"] {
+        border-radius: 12px;
+        line-height: 1.65;
+    }
+
+    @media (max-width: 768px) {
+        [data-testid="stMainBlockContainer"] {
+            padding: 1rem 1rem 2rem;
+        }
+        .metric-card, .section-card, .risk-box {
+            padding: 15px;
+        }
+        .simulation-note {
+            padding: 15px;
+        }
+    }
+
 </style>
     """
 )
@@ -1306,6 +1472,114 @@ if IS_DARK_THEME:
         """
     )
 
+
+
+# =========================================================
+# SIEM-STYLE NAVY THEME OVERRIDES
+# =========================================================
+
+render_html(
+    """
+    <style>
+    :root { color-scheme: dark; }
+    html, body, .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"],
+    [data-testid="stMainBlockContainer"] {
+        background: #171a26 !important;
+        color: #e6e9f2 !important;
+    }
+    [data-testid="stHeader"], [data-testid="stToolbar"],
+    [data-testid="stDecoration"], [data-testid="stStatusWidget"] {
+        background: #171a26 !important;
+        color: #e6e9f2 !important;
+    }
+    [data-testid="stMainBlockContainer"] {
+        max-width: 1600px;
+        padding-top: 1.2rem;
+        padding-bottom: 2rem;
+    }
+    section[data-testid="stSidebar"],
+    [data-testid="stSidebar"] > div {
+        background: #111521 !important;
+        border-right: 1px solid #343a4c !important;
+    }
+    [data-testid="stSidebar"] * { color: #e6e9f2 !important; }
+    h1, h2, h3, h4, h5, h6,
+    [data-testid="stMarkdownContainer"],
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stCaptionContainer"], label {
+        color: #e6e9f2 !important;
+    }
+    .dashboard-title { color: #f4f6fb !important; text-shadow: none !important; }
+    .dashboard-subtitle { color: #a6adbf !important; opacity: 1 !important; }
+    .brand-title { color: #f4f6fb !important; }
+    .brand-subtitle { color: #a6adbf !important; opacity: 1 !important; }
+    .metric-card, .section-card, .risk-box, .pipeline-step,
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        background: #252a39 !important;
+        color: #e6e9f2 !important;
+        border: 1px solid #363d50 !important;
+        border-radius: 9px !important;
+        box-shadow: 0 3px 12px rgba(0,0,0,.22) !important;
+    }
+    .metric-card { height: 132px; min-height: 132px; padding: 16px !important; }
+    .metric-label, .risk-box-title { color: #aeb6c9 !important; opacity: 1 !important; }
+    .metric-value, .risk-number { color: #f4f6fb !important; }
+    .metric-small { color: #aeb6c9 !important; opacity: 1 !important; }
+    .risk-high { color: #ff6969 !important; font-weight: 900; }
+    .risk-medium { color: #ffad42 !important; font-weight: 900; }
+    .risk-low { color: #65c879 !important; font-weight: 900; }
+    .simulation-note {
+        background: #252a39 !important;
+        color: #e6e9f2 !important;
+        border: 1px solid #363d50 !important;
+        border-left: 4px solid #4f91ff !important;
+        border-radius: 9px !important;
+    }
+    [data-testid="stMetric"] {
+        background: #252a39 !important;
+        border: 1px solid #363d50 !important;
+        border-radius: 8px !important;
+        padding: 12px !important;
+    }
+    [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p { color: #aeb6c9 !important; }
+    [data-testid="stMetricValue"] { color: #f4f6fb !important; }
+    [data-testid="stDataFrame"], [data-testid="stTable"] {
+        background: #252a39 !important;
+        border: 1px solid #363d50 !important;
+        border-radius: 8px !important;
+        overflow: hidden !important;
+    }
+    [data-testid="stExpander"] { border: 1px solid #363d50 !important; border-radius: 8px !important; }
+    div[data-baseweb="select"] > div,
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextArea"] textarea {
+        background: #252a39 !important;
+        color: #f4f6fb !important;
+        border-color: #41495e !important;
+    }
+    .stButton > button, [data-testid="stDownloadButton"] > button {
+        background: #343b50 !important;
+        color: #f4f6fb !important;
+        border: 1px solid #4a536b !important;
+        border-radius: 5px !important;
+        font-weight: 700 !important;
+    }
+    .stButton > button:hover, [data-testid="stDownloadButton"] > button:hover {
+        background: #414b64 !important;
+        border-color: #7797d4 !important;
+    }
+    a { color: #8bb8ff !important; }
+    .scanner-shell { border-color: #343a4c !important; }
+    @media (max-width: 768px) {
+        [data-testid="stMainBlockContainer"] { padding: 1rem .7rem 2rem; }
+        .metric-card { height: auto; min-height: 115px; }
+    }
+    </style>
+    """
+)
 
 
 # =========================================================
@@ -1811,29 +2085,20 @@ elif page == "Simulation":
         """
     )
 
-    render_html(
-        """
-        <div class="simulation-note">
-
-        <strong>🎬 SIMULATION MODE</strong><br><br>
-
-        Every press of <strong>TRIGGER SIMULATION</strong> creates
-        exactly one new simulated match.
-
-        The risk sequence is:
-
-        <strong>
-        LOW → LOW → MEDIUM → MEDIUM → MEDIUM → HIGH
-        </strong>
-
-        and then repeats automatically.
-
-        The simulation results are stored only in the current
-        Streamlit session. PostgreSQL is not modified.
-
-        </div>
-        """
-    )
+    # Compact control panel: keep instructions readable without a tall banner.
+    intro_col, status_col = st.columns([2.2, 1], gap="medium")
+    with intro_col:
+        st.markdown("### Run a test scenario")
+        st.caption(
+            "Each trigger creates one simulated match. The preset risk cycle repeats: "
+            "LOW → LOW → MEDIUM → MEDIUM → MEDIUM → HIGH."
+        )
+    with status_col:
+        st.markdown(
+            "<div style='display:inline-block;padding:8px 12px;border:1px solid #1f9d63;border-radius:10px;color:#5ee6a8;background:#0d2b20;font-weight:700;font-size:12px;letter-spacing:.5px'>● SIMULATION MODE</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption("Session-only results · PostgreSQL is unchanged")
 
 
     # =====================================================
@@ -1856,37 +2121,37 @@ elif page == "Simulation":
             "level": "LOW",
             "score": 28,
             "type": "Minor character variation",
-            "reason": "Low-confidence similarity scenario",
+            "reason": "This preset represents a small spelling variation with limited similarity signals. The score is configured for demonstration; inspect the evidence checks before interpreting it.",
         },
         {
             "level": "LOW",
             "score": 36,
             "type": "Domain variation",
-            "reason": "Limited similarity signals",
+            "reason": "This preset represents a domain variation with only limited configured suspicion signals. The score is a demonstration value, not a confirmed maliciousness verdict.",
         },
         {
             "level": "MEDIUM",
             "score": 55,
             "type": "Character substitution",
-            "reason": "Moderate domain and content similarity",
+            "reason": "This preset represents a character-substitution pattern with moderate configured suspicion. Domain resemblance alone cannot confirm that a site is malicious.",
         },
         {
             "level": "MEDIUM",
             "score": 64,
             "type": "Brand + keyword variation",
-            "reason": "Multiple moderate-risk indicators",
+            "reason": "This preset represents a brand-like name combined with an extra keyword. The scenario is assigned a medium score to demonstrate how combined signals can raise suspicion.",
         },
         {
             "level": "MEDIUM",
             "score": 68,
             "type": "Login-oriented variation",
-            "reason": "Elevated similarity and login-related signals",
+            "reason": "This preset represents a brand-like domain with login-oriented indicators. Review the actual content and visual evidence returned by the analyzer; the scenario itself is not proof of credential theft.",
         },
         {
             "level": "HIGH",
             "score": 86,
             "type": "Strong impersonation scenario",
-            "reason": "High-confidence demonstration scenario",
+            "reason": "This preset represents a strong brand-impersonation pattern and is assigned a high demonstration score (86/100). The dashboard shows DNS, reachability, visual and login-related evidence separately; the preset score alone does not prove a real attack.",
         },
     ]
 
@@ -1895,11 +2160,15 @@ elif page == "Simulation":
     # TRIGGER BUTTON
     # =====================================================
 
-    trigger = st.button(
-        "🎯 TRIGGER SIMULATION",
-        type="primary",
-        use_container_width=True,
-    )
+    trigger_col, trigger_hint_col = st.columns([1, 2.2], gap="medium")
+    with trigger_col:
+        trigger = st.button(
+            "🎯 Trigger simulation",
+            type="primary",
+            use_container_width=True,
+        )
+    with trigger_hint_col:
+        st.caption("Run one test to generate a risk score, explanation, and available evidence checks.")
 
 
     # =====================================================
@@ -2055,6 +2324,42 @@ elif page == "Simulation":
                     "login_similarity"
                 )
             )
+
+            # Preserve browser evidence separately from scenario values.
+            candidate_page = evidence.get("candidate_page") or {}
+            match["domain_reachable"] = (
+                bool(candidate_page.get("success"))
+                if "success" in candidate_page
+                else None
+            )
+            match["domain_reachability_note"] = (
+                "Simulation site reachable"
+                if match["domain_reachable"] is True
+                else "Simulation site not reachable"
+                if match["domain_reachable"] is False
+                else "Reachability unavailable"
+            )
+
+            dns_status, dns_addresses, dns_note = check_simulation_dns(
+                match.get("domain")
+            )
+            match["dns_status"] = dns_status
+            match["dns_addresses"] = dns_addresses
+            match["dns_note"] = dns_note
+
+            # RDAP registration data is best-effort and may be unavailable.
+            try:
+                whois_info = get_whois_info(
+                    match.get("display_domain") or match["domain"],
+                    timeout=8,
+                )
+                match["registration_date"] = (
+                    whois_info.get("creation_date")
+                )
+                match["registrar"] = whois_info.get("registrar")
+            except Exception:
+                match["registration_date"] = None
+                match["registrar"] = None
 
             match["report_path"] = (
                 report_path
@@ -2347,13 +2652,13 @@ elif page == "Simulation":
                 </div>
 
                 <div class="risk-number">
-                {latest["risk_score"]}/100
+                {latest['risk_score']}/100
                 </div>
 
                 <div class="{risk_class(
                     latest["risk_level"]
                 )}">
-                {latest["risk_level"]}
+                {latest['risk_level']}
                 </div>
 
                 </div>
@@ -2391,46 +2696,130 @@ elif page == "Simulation":
             )
 
 
-        render_html(
-            f"""
-            <div class="simulation-note">
+        triggered_at = latest.get("triggered_at")
 
-            <strong>
-            Latest simulation:
-            {latest["match_id"]}
-            </strong>
+        try:
+            triggered_label = (
+                datetime.fromisoformat(
+                    str(triggered_at).replace("Z", "+00:00")
+                )
+                .astimezone()
+                .strftime("%d %b %Y, %I:%M:%S %p")
+            )
+        except (ValueError, TypeError):
+            triggered_label = "Timestamp unavailable"
 
-            <br><br>
+        reachable = latest.get("domain_reachable")
+        reachability = latest.get("domain_reachability_note")
+        if reachability is None:
+            reachability = (
+                "Simulation site reachable"
+                if reachable is True
+                else "Simulation site not reachable"
+                if reachable is False
+                else "Reachability unavailable"
+            )
 
-            Simulated domain:
-            <strong>
-            {latest["domain"]}
-            </strong>
+        registration_date = latest.get("registration_date") or "Unavailable"
+        registrar = latest.get("registrar") or "Unavailable"
 
-            <br>
-
-            Matched brand:
-            <strong>
-            {latest["matched_brand"]}
-            </strong>
-
-            <br>
-
-            Risk:
-            <strong>
-            {latest["risk_score"]}/100
-            —
-            {latest["risk_level"]}
-            </strong>
-
-            <br>
-
-            Scenario:
-            {latest["risk_reason"]}
-
-            </div>
-            """
+        st.markdown("### Why did the system give this risk score?")
+        st.caption(
+            "The scenario score is a configured demonstration value. "
+            "Evidence findings below are collected separately; a simulation is not proof that a real domain is malicious."
         )
+
+        score_col, level_col, evidence_col = st.columns(3)
+        with score_col:
+            st.metric("Configured scenario score", f"{latest.get('risk_score', 'N/A')}/100")
+        with level_col:
+            st.metric("Scenario risk level", str(latest.get("risk_level", "Unavailable")))
+        with evidence_col:
+            evidence_score = latest.get("evidence_risk_score")
+            st.metric(
+                "Evidence analyzer score",
+                f"{evidence_score}/100" if evidence_score is not None else "Not available",
+            )
+
+        st.markdown("#### Scenario explanation")
+        st.info(
+            f"**Test type:** {latest.get('match_type', 'Unavailable')}\n\n"
+            f"**Why this scenario has its configured score:** {latest.get('risk_reason', 'No scenario explanation was recorded.')}\n\n"
+            "The score/level above describes the selected simulation preset. The evidence score is the analyzer's separate assessment, when available."
+        )
+
+        st.markdown("#### Network and website checks")
+        dns_status = latest.get("dns_status", "Not checked")
+        dns_addresses = latest.get("dns_addresses") or []
+        dns_note = latest.get("dns_note", "DNS check was not recorded.")
+        reachable = latest.get("domain_reachable")
+        reachability = (
+            "Reachable" if reachable is True
+            else "Not reachable" if reachable is False
+            else "Unknown / not recorded"
+        )
+        net1, net2, net3 = st.columns(3)
+        with net1:
+            st.metric("DNS resolution", dns_status)
+            st.caption(dns_note)
+        with net2:
+            st.metric("Simulation website", reachability)
+            st.caption("Browser evidence check against the local simulation service.")
+        with net3:
+            st.metric("Evidence collection", str(latest.get("evidence_status", "Unavailable")).replace("_", " ").title())
+            st.caption("Status returned by the evidence analyzer.")
+
+        if dns_addresses:
+            st.write("**Resolved IP address(es):** " + ", ".join(str(x) for x in dns_addresses))
+        st.caption(
+            "This test uses the local Docker simulation hostname. DNS resolution here means it resolved inside the container network; it does not mean the hostname is publicly registered or accessible from the internet."
+        )
+
+        st.markdown("#### Evidence indicators")
+        visual = latest.get("visual_similarity")
+        login = latest.get("login_similarity")
+        def format_indicator(value):
+            if value is None:
+                return "Not available"
+            if isinstance(value, (int, float)):
+                return f"{value:.1f}%" if 0 <= value <= 100 else str(value)
+            return str(value)
+
+        indicators = [
+            {"Check": "Visual similarity", "Observed result": format_indicator(visual), "What it means": "Compares the captured page with the reference page; unavailable means no usable comparison was returned."},
+            {"Check": "Login/content similarity", "Observed result": format_indicator(login), "What it means": "Shows the analyzer's login-related similarity signal when available; it is not proof of credential theft."},
+            {"Check": "Domain registration date", "Observed result": str(latest.get("registration_date") or "Unavailable"), "What it means": "Registration lookup may be unavailable for local or reserved simulation hostnames."},
+            {"Check": "Registrar", "Observed result": str(latest.get("registrar") or "Unavailable"), "What it means": "Provided only when registration lookup returns a registrar."},
+        ]
+        st.dataframe(pd.DataFrame(indicators), use_container_width=True, hide_index=True)
+
+        st.markdown("#### Final interpretation")
+        risk_level = str(latest.get("risk_level", "UNKNOWN")).upper()
+        if risk_level == "HIGH":
+            st.warning(
+                "**High-risk demonstration scenario:** the configured scenario is intended to represent a strong impersonation pattern. "
+                "Review the evidence indicators above to see which checks returned data; do not treat the preset score alone as proof of a real attack."
+            )
+        elif risk_level == "MEDIUM":
+            st.warning(
+                "**Medium-risk demonstration scenario:** the configured scenario represents a moderate or combined set of suspicious signals. "
+                "Review available evidence before drawing a conclusion."
+            )
+        else:
+            st.success(
+                "**Low-risk demonstration scenario:** the configured scenario represents limited similarity signals. "
+                "Low risk does not guarantee that a domain is safe."
+            )
+
+        st.markdown("#### Simulation details")
+        with st.expander("View identifiers and timestamps"):
+            st.write(f"**Simulation ID:** {latest.get('match_id', 'Unavailable')}")
+            st.write(f"**Simulated hostname:** {latest.get('domain', 'Unavailable')}")
+            st.write(f"**Display-only hostname:** {latest.get('display_domain', 'Unavailable')}")
+            st.write(f"**Matched brand:** {latest.get('matched_brand', 'Unavailable')}")
+            st.write(f"**Triggered at:** {triggered_label}")
+            st.write(f"**PDF report:** {'Generated' if latest.get('report_generated') else 'Not generated'}")
+
 
 
     # =====================================================
